@@ -1,215 +1,222 @@
-# سیستم تحلیل انتقال حرارت و عایق‌های حرارتی
 # Thermal Insulation Analysis System
 
-## 🔥 توضیحات پروژه
+## نظام تحلیل عایق‌کاری حرارتی
 
-این پروژه یک سیستم جامع و پیشرفته برای تحلیل انتقال حرارت و بهینه‌سازی عایق‌های حرارتی است که قابلیت‌های منحصر به فرد زیر را ارائه می‌دهد:
+Enhanced thermal insulation analysis system with **BeautifulSoup HTML parser** support for extracting data from Model Summary sections in HTML reports.
 
-### 🎯 هدف اصلی
-ایجاد ابزاری هوشمند که بتواند:
-- داده‌های موجود از نرم‌افزارهای تحلیل حرارتی را پردازش کند
-- مدل یادگیری ماشین برای پیش‌بینی ویژگی‌های حرارتی ایجاد کند
-- برای هندسه‌های پیچیده و جدید پیش‌بینی‌های دقیق ارائه دهد
+## Features / ویژگی‌ها
 
-## 🚀 ویژگی‌های کلیدی
+### ✨ HTML Parsing Capabilities
+- **BeautifulSoup Integration**: Advanced HTML parsing using BeautifulSoup4
+- **Model Summary Extraction**: Specifically designed to extract data from Model Summary tables
+- **Multilingual Support**: Supports both English and Persian (Farsi) content
+- **Multiple Detection Methods**: Various strategies to locate and extract thermal data
+- **Flexible Format Support**: Handles different HTML structures and layouts
 
-### 1. 📄 پردازش فایل‌های HTML
-- **استخراج خودکار** اطلاعات حرارتی از گزارش‌های HTML
-- **شناسایی هوشمند** انواع هندسه (لوله، کره، مکعب، سطح)
-- **تشخیص خودکار** انواع عایق و پارامترهای حرارتی
-- **پشتیبانی** از فرمت‌های مختلف فارسی و انگلیسی
+### 🔧 Core Features
+- **Database Management**: SQLite database for storing thermal data
+- **Machine Learning Prediction**: Simple weighted-average prediction model
+- **Multiple Geometry Types**: Support for pipe, sphere, cube, and surface geometries
+- **Various Insulation Types**: Polyurethane, foam, glass wool, mineral wool, ceramic
+- **Comprehensive Data Extraction**: Temperature, geometry, insulation type, area, coefficients
 
-### 2. 🗄️ مدیریت داده‌ها
-- **پایگاه داده SQLite** برای ذخیره‌سازی ایمن
-- **رابط کاربری ساده** برای افزودن داده‌های دستی
-- **امکان بازیابی** و تجزیه و تحلیل داده‌ها
-- **نمایش آمار** جامع و کاربردی
+## Installation / نصب
 
-### 3. 🤖 سیستم پیش‌بینی هوشمند
-- **الگوریتم یادگیری ماشین** برای آموزش از داده‌های موجود
-- **پیش‌بینی دقیق** دمای سطح عایق برای هندسه‌های جدید
-- **محاسبه بازده** عایق‌کاری و کاهش دما
-- **عدم وابستگی** به کتابخانه‌های پیچیده خارجی
+### Prerequisites / پیش‌نیازها
 
-### 4. 📊 گزارش‌گیری پیشرفته
-- **تولید گزارش‌های HTML** زیبا و کامل
-- **نمایش آمار** و تحلیل‌های عملکردی
-- **رابط کاربری** دوستانه و قابل فهم
-
-## 🛠️ نصب و راه‌اندازی
-
-### پیش‌نیازها
-این برنامه تنها به Python 3.6+ نیاز دارد و از کتابخانه‌های استاندارد Python استفاده می‌کند.
-
-### دانلود و اجرا
 ```bash
-# دانلود پروژه
-git clone [repository-url]
-cd thermal-analyzer
+# Install BeautifulSoup and dependencies
+pip install beautifulsoup4 lxml html5lib
 
-# اجرای برنامه اصلی
-python3 simple_thermal_analyzer.py
+# Or if using system package manager
+apt install python3-bs4 python3-lxml
 
-# اجرای دمو
-python3 simple_demo.py
+# Or using the break-system-packages flag
+pip install --break-system-packages beautifulsoup4 lxml html5lib
 ```
 
-## 📋 راهنمای استفاده
+### Files Required / فایل‌های مورد نیاز
 
-### 1. اجرای دمو
-برای آشنایی سریع با قابلیت‌ها:
+- `thermal_analysis.py` - Main system file
+- `requirements.txt` - Dependencies list
+- `html_files/` - Directory for HTML input files
+
+## Usage / نحوه استفاده
+
+### Running the System / اجرای سیستم
+
 ```bash
-python3 simple_demo.py
+python3 thermal_analysis.py
 ```
 
-### 2. استفاده از برنامه اصلی
+### Menu Options / گزینه‌های منو
+
+1. **Import HTML files** - Import and parse HTML files from a directory
+2. **Add manual data** - Manually input thermal data
+3. **Train prediction model** - Train the ML model with existing data
+4. **Predict insulation temperature** - Predict for new scenarios
+5. **View data statistics** - Display database statistics
+6. **Exit** - Close the program
+
+### HTML File Format / فرمت فایل HTML
+
+The system supports HTML files with Model Summary tables like:
+
+```html
+<div class="summary-section">
+    <h2>Model Summary</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Info.</th>
+                <th>Value</th>
+                <th>Unit</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Inner Surface Temperature</td>
+                <td>500</td>
+                <td>C</td>
+            </tr>
+            <tr>
+                <td>Ambient Temperature</td>
+                <td>25</td>
+                <td>C</td>
+            </tr>
+            <tr>
+                <td>Air Speed</td>
+                <td>2</td>
+                <td>m/s</td>
+            </tr>
+            <!-- More rows... -->
+        </tbody>
+    </table>
+</div>
+```
+
+### Persian Support / پشتیبانی فارسی
+
+The system also supports Persian HTML files with fields like:
+- دمای سطح داخلی (Inner Surface Temperature)
+- دمای محیط (Ambient Temperature)
+- سرعت هوا (Air Speed)
+- حداکثر ضخامت عایق (Maximum Insulation Thickness)
+
+## Data Fields Extracted / فیلدهای استخراج شده
+
+### Temperature Data / داده‌های دما
+- **Equipment Surface Temperature** / دمای سطح تجهیز
+- **Insulation Surface Temperature** / دمای سطح عایق
+- **Ambient Temperature** / دمای محیط
+
+### Geometric Data / داده‌های هندسی
+- **Geometry Type**: pipe, sphere, cube, surface
+- **Cross-sectional Area** / سطح مقطع
+- **Insulation Thickness** / ضخامت عایق
+
+### Material Properties / خواص مواد
+- **Insulation Type** / نوع عایق
+- **Thermal Conductivity** / ضریب هدایت حرارتی
+- **Convection Coefficient** / ضریب همرفت
+
+## Testing / تست
+
+### Run Tests / اجرای تست‌ها
+
 ```bash
-python3 simple_thermal_analyzer.py
+# Basic parser test
+python3 test_parser.py
+
+# Comprehensive system test
+python3 comprehensive_test.py
 ```
 
-### منوی اصلی برنامه:
-```
-1. وارد کردن فایل‌های HTML
-2. افزودن داده دستی  
-3. آموزش مدل پیش‌بینی
-4. پیش‌بینی دمای عایق برای هندسه جدید
-5. مشاهده آمار داده‌ها
-6. خروج
-```
+### Sample Files / فایل‌های نمونه
 
-## 📁 ساختار فایل‌ها
+The system includes sample HTML files:
+- `sample_model_summary.html` - English Model Summary
+- `persian_model_summary.html` - Persian Model Summary
+- `third_sample.html` - Additional English sample
+- Various report files with different formats
 
-```
-thermal-analyzer/
-├── 📄 simple_thermal_analyzer.py  # برنامه اصلی (بدون وابستگی)
-├── 📄 thermal_analyzer.py         # نسخه کامل (با pandas)
-├── 🎯 simple_demo.py             # فایل دمو
-├── 📋 requirements.txt           # وابستگی‌ها
-├── 📖 README.md                 # راهنمای استفاده
-├── 📁 html_files/               # فایل‌های HTML نمونه
-│   ├── 📄 sample_report1.html
-│   ├── 📄 sample_report2.html
-│   ├── �� sample_report3.html
-│   └── 📄 sample_report4.html
-├── 🗄️ thermal_data.db          # پایگاه داده (بعد از اجرا)
-└── 🤖 thermal_model.pkl        # مدل آموزش دیده
-```
+## Technical Details / جزئیات فنی
 
-## 🔧 انواع هندسه‌های پشتیبانی شده
+### HTML Parser Features / ویژگی‌های تحلیل‌گر HTML
 
-| هندسه | نام فارسی | نام انگلیسی | کاربرد |
-|--------|-----------|--------------|---------|
-| �� | لوله | pipe | لوله‌های افقی/عمودی |
-| 🔵 | کره | sphere | تجهیزات کروی |
-| 🟠 | مکعب | cube | تجهیزات مکعبی |
-| 🟡 | سطح | surface | سطوح صاف |
+1. **Multi-method Detection**:
+   - Searches for "Model Summary" headings
+   - Looks for tables with thermal data patterns
+   - Extracts from div elements with relevant classes
+   - Falls back to full document parsing
 
-## 🧪 انواع عایق‌های پشتیبانی شده
+2. **Regex Patterns**:
+   - Temperature extraction with unit recognition
+   - Geometry type detection
+   - Insulation material identification
+   - Area and coefficient parsing
 
-| عایق | نام فارسی | نام انگلیسی | ویژگی |
-|------|-----------|--------------|--------|
-| 🟣 | پلی اورتان | polyurethane | کارایی بالا |
-| 🟤 | فوم | foam | اقتصادی |
-| ⚪ | پشم شیشه | glass wool | مقاوم حرارتی |
+3. **Data Validation**:
+   - Required field checking
+   - Numeric value validation
+   - Unit conversion support
+   - Default value assignment
 
-## 📊 نمونه خروجی
+### Machine Learning / یادگیری ماشین
+
+- **Algorithm**: Weighted K-Nearest Neighbors
+- **Features**: Temperature, area, convection coefficient, geometry code, insulation code
+- **Minimum Training Data**: 3 samples required
+- **Prediction Output**: Insulation surface temperature
+
+## Output Example / نمونه خروجی
 
 ```
-هندسه: کره | عایق: پلی اورتان
-دمای تجهیز: 220°C
-دمای پیش‌بینی عایق: 37.4°C
-کاهش دما: 182.6°C (83.0%)
+Processing file: sample_model_summary.html
+✓ File sample_model_summary.html successfully imported.
+  - Equipment temp: 500.0°C
+  - Insulation temp: 100.0°C
+  - Geometry: surface
+  - Insulation: polyurethane
+
+Model trained with 7 samples.
+✓ Prediction successful: 64.2°C
+  - Temperature reduction: 335.8°C (83.9%)
 ```
 
-## 🎯 مزایای کلیدی
+## Error Handling / مدیریت خطا
 
-### 1. **سادگی استفاده**
-- رابط کاربری متنی ساده و روان
-- عدم نیاز به دانش برنامه‌نویسی
-- راهنمای گام به گام
+- **File Not Found**: Graceful handling of missing files
+- **Parse Errors**: Detailed error reporting for HTML issues
+- **Validation Failures**: Clear feedback on missing required data
+- **Training Failures**: Informative messages for insufficient data
 
-### 2. **قابلیت اطمینان**
-- استفاده از پایگاه داده محلی
-- پشتیبان‌گیری خودکار داده‌ها
-- مدیریت خطا پیشرفته
+## Development / توسعه
 
-### 3. **انعطاف‌پذیری**
-- پشتیبانی از انواع مختلف هندسه
-- قابلیت افزودن عایق‌های جدید
-- امکان توسعه الگوریتم‌ها
+### Architecture / معماری
 
-### 4. **کارایی بالا**
-- پردازش سریع فایل‌های HTML
-- الگوریتم پیش‌بینی بهینه
-- مصرف کم منابع سیستم
+```
+ThermalAnalyzer
+├── HTMLParser (BeautifulSoup-based)
+├── ThermalDatabase (SQLite)
+├── SimplePredictor (ML model)
+└── ThermalData (data structure)
+```
 
-## 🔮 قابلیت‌های پیشرفته
+### Extending the Parser / گسترش تحلیل‌گر
 
-### الگوریتم پیش‌بینی
-برنامه از روش **میانگین وزنی بر اساس فاصله** استفاده می‌کند:
-- محاسبه شباهت با نمونه‌های آموزشی
-- تخصیص وزن بر اساس نزدیکی ویژگی‌ها
-- پیش‌بینی دقیق برای داده‌های جدید
+To add support for new HTML formats:
+1. Update `field_mappings` dictionary
+2. Add new regex patterns
+3. Extend geometry/insulation pattern dictionaries
+4. Update validation logic
 
-### پردازش HTML
-- تشخیص خودکار الگوهای متنی
-- استخراج اعداد و واحدها
-- پشتیبانی از فرمت‌های مختلف
+## License / مجوز
 
-## 🎨 سناریوهای کاربرد
+This project is open source and available under the MIT License.
 
-### 1. **مهندسان مکانیک**
-- تحلیل عملکرد عایق‌های موجود
-- طراحی سیستم‌های عایق‌کاری جدید
-- بهینه‌سازی انتخاب مواد
+## Contributors / مشارکت‌کنندگان
 
-### 2. **شرکت‌های مشاوره**
-- ارائه گزارش‌های تخصصی
-- مقایسه گزینه‌های مختلف
-- محاسبه صرفه اقتصادی
-
-### 3. **پژوهشگران**
-- تحلیل داده‌های آزمایشگاهی
-- توسعه مدل‌های جدید
-- مطالعات پارامتریک
-
-## 🔄 مراحل توسعه آینده
-
-### فاز 1: بهبود پایه
-- [ ] افزودن انواع جدید عایق
-- [ ] بهبود دقت پیش‌بینی
-- [ ] رابط گرافیکی ساده
-
-### فاز 2: ویژگی‌های پیشرفته
-- [ ] پشتیبانی از فایل‌های Excel
-- [ ] تحلیل اقتصادی
-- [ ] گزارش‌های تصویری
-
-### فاز 3: هوش مصنوعی
-- [ ] شبکه‌های عصبی عمیق
-- [ ] بهینه‌سازی خودکار
-- [ ] پیش‌بینی عمر مفید
-
-## 🤝 مشارکت و توسعه
-
-این پروژه آماده دریافت پیشنهادات و بهبودها است:
-- گزارش باگ‌ها
-- پیشنهاد ویژگی‌های جدید
-- بهبود مستندات
-- ترجمه به زبان‌های دیگر
-
-## 📞 پشتیبانی
-
-برای:
-- سؤالات فنی
-- درخواست ویژگی جدید
-- گزارش مشکلات
-- راهنمایی استفاده
-
-لطفاً با تیم توسعه تماس بگیرید.
-
----
-
-**نکته مهم:** این سیستم به عنوان ابزار کمکی طراحی شده و نتایج آن باید توسط مهندسان متخصص بررسی و تأیید شود.
-
-🌟 **موفق باشید در استفاده از این ابزار!** 🌟
+- Enhanced with BeautifulSoup HTML parsing capabilities
+- Multilingual support for Persian and English
+- Comprehensive testing framework
