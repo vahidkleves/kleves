@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Enhanced Thermal Insulation Analysis System
-With Multi-Layer Insulation and Geometric Parameter-Based Equipment Identification
+With Multi-Layer Insulation and Neural Network Prediction
 """
 
 import sqlite3
@@ -12,6 +12,8 @@ from datetime import datetime
 import pickle
 import re
 import math
+import numpy as np
+from typing import List, Tuple, Optional
 
 class InsulationLayer:
     """Class for storing individual insulation layer information"""
@@ -402,25 +404,148 @@ class ThermalDatabase:
         conn.close()
         return data
 
-class DecisionTreeNode:
-    """Node class for Decision Tree"""
-    def __init__(self, feature_index=None, threshold=None, left=None, right=None, value=None):
-        self.feature_index = feature_index
-        self.threshold = threshold
-        self.left = left
-        self.right = right
-        self.value = value
-
-class DecisionTreePredictor:
-    """Decision Tree predictor for thermal properties with multi-layer support"""
+class ActivationFunction:
+    """Activation functions for neural network"""
     
-    def __init__(self, max_depth=10, min_samples_split=3, min_samples_leaf=1):
-        self.max_depth = max_depth
-        self.min_samples_split = min_samples_split
-        self.min_samples_leaf = min_samples_leaf
+    @staticmethod
+    def sigmoid(x):
+        """Sigmoid activation function"""
+        # Clip x to prevent overflow
+        x = np.clip(x, -500, 500)
+        return 1 / (1 + np.exp(-x))
+    
+    @staticmethod
+    def sigmoid_derivative(x):
+        """Derivative of sigmoid function"""
+        s = ActivationFunction.sigmoid(x)
+        return s * (1 - s)
+    
+    @staticmethod
+    def relu(x):
+        """ReLU activation function"""
+        return np.maximum(0, x)
+    
+    @staticmethod
+    def relu_derivative(x):
+        """Derivative of ReLU function"""
+        return (x > 0).astype(float)
+    
+    @staticmethod
+    def tanh(x):
+        """Tanh activation function"""
+        return np.tanh(x)
+    
+    @staticmethod
+    def tanh_derivative(x):
+        """Derivative of tanh function"""
+        return 1 - np.tanh(x) ** 2
+    
+    @staticmethod
+    def linear(x):
+        """Linear activation function"""
+        return x
+    
+    @staticmethod
+    def linear_derivative(x):
+        """Derivative of linear function"""
+        return np.ones_like(x)
+
+class NeuralLayer:
+    """Individual layer in neural network"""
+    
+    def __init__(self, input_size: int, output_size: int, activation: str = 'sigmoid'):
+        self.input_size = input_size
+        self.output_size = output_size
+        self.activation = activation
+        
+        # Initialize weights with Xavier/Glorot initialization
+        self.weights = np.random.randn(input_size, output_size) * np.sqrt(2.0 / (input_size + output_size))
+        self.biases = np.zeros((1, output_size))
+        
+        # For momentum and adaptive learning
+        self.weights_momentum = np.zeros_like(self.weights)
+        self.biases_momentum = np.zeros_like(self.biases)
+        
+        # Store last input and output for backpropagation
+        self.last_input = None
+        self.last_z = None
+        self.last_output = None
+    
+    def forward(self, inputs):
+        """Forward pass through the layer"""
+        self.last_input = inputs
+        self.last_z = np.dot(inputs, self.weights) + self.biases
+        
+        # Apply activation function
+        if self.activation == 'sigmoid':
+            self.last_output = ActivationFunction.sigmoid(self.last_z)
+        elif self.activation == 'relu':
+            self.last_output = ActivationFunction.relu(self.last_z)
+        elif self.activation == 'tanh':
+            self.last_output = ActivationFunction.tanh(self.last_z)
+        elif self.activation == 'linear':
+            self.last_output = ActivationFunction.linear(self.last_z)
+        
+        return self.last_output
+    
+    def backward(self, error_gradient, learning_rate=0.01, momentum=0.9):
+        """Backward pass through the layer"""
+        # Calculate activation derivative
+        if self.activation == 'sigmoid':
+            activation_derivative = ActivationFunction.sigmoid_derivative(self.last_z)
+        elif self.activation == 'relu':
+            activation_derivative = ActivationFunction.relu_derivative(self.last_z)
+        elif self.activation == 'tanh':
+            activation_derivative = ActivationFunction.tanh_derivative(self.last_z)
+        elif self.activation == 'linear':
+            activation_derivative = ActivationFunction.linear_derivative(self.last_z)
+        
+        # Calculate deltas
+        delta = error_gradient * activation_derivative
+        
+        # Calculate gradients
+        weights_gradient = np.dot(self.last_input.T, delta)
+        biases_gradient = np.sum(delta, axis=0, keepdims=True)
+        
+        # Calculate error to propagate to previous layer
+        error_to_propagate = np.dot(delta, self.weights.T)
+        
+        # Update weights and biases with momentum
+        self.weights_momentum = momentum * self.weights_momentum + learning_rate * weights_gradient
+        self.biases_momentum = momentum * self.biases_momentum + learning_rate * biases_gradient
+        
+        self.weights -= self.weights_momentum
+        self.biases -= self.biases_momentum
+        
+        return error_to_propagate
+
+class NeuralNetworkPredictor:
+    """Neural Network predictor for thermal properties with multi-layer support"""
+    
+    def __init__(self, hidden_layers=[20, 15, 10], learning_rate=0.01, epochs=1000, 
+                 batch_size=32, validation_split=0.2):
+        self.hidden_layers = hidden_layers
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.validation_split = validation_split
+        
         self.is_trained = False
-        self.temp_tree = None
-        self.hconv_tree = None
+        self.temp_network = None
+        self.hconv_network = None
+        
+        # Feature scaling parameters
+        self.feature_scaler_params = None
+        self.temp_target_scaler_params = None
+        self.hconv_target_scaler_params = None
+        
+        # Training history
+        self.training_history = {
+            'temp_loss': [],
+            'temp_val_loss': [],
+            'hconv_loss': [],
+            'hconv_val_loss': []
+        }
         
         self.geometry_mapping = {
             'pipe': 1,
@@ -436,86 +561,69 @@ class DecisionTreePredictor:
             'needeled_mat': 4
         }
     
-    def _calculate_mse(self, y):
-        """Calculate Mean Squared Error for a set of target values"""
-        if len(y) == 0:
-            return 0
-        mean_y = sum(y) / len(y)
-        return sum((yi - mean_y) ** 2 for yi in y) / len(y)
-    
-    def _best_split(self, X, y):
-        """Find the best feature and threshold to split on"""
-        best_mse = float('inf')
-        best_feature = None
-        best_threshold = None
+    def _normalize_features(self, features, scaler_params=None):
+        """Normalize features using min-max scaling"""
+        features = np.array(features)
         
-        n_features = len(X[0])
-        
-        for feature_index in range(n_features):
-            feature_values = [x[feature_index] for x in X]
-            unique_values = sorted(set(feature_values))
+        if scaler_params is None:
+            # Calculate scaling parameters
+            min_vals = np.min(features, axis=0)
+            max_vals = np.max(features, axis=0)
             
-            for i in range(len(unique_values) - 1):
-                threshold = (unique_values[i] + unique_values[i + 1]) / 2
-                
-                left_indices = [j for j, x in enumerate(X) if x[feature_index] <= threshold]
-                right_indices = [j for j, x in enumerate(X) if x[feature_index] > threshold]
-                
-                if len(left_indices) < self.min_samples_leaf or len(right_indices) < self.min_samples_leaf:
-                    continue
-                
-                left_y = [y[j] for j in left_indices]
-                right_y = [y[j] for j in right_indices]
-                
-                left_mse = self._calculate_mse(left_y)
-                right_mse = self._calculate_mse(right_y)
-                
-                weighted_mse = (len(left_y) * left_mse + len(right_y) * right_mse) / len(y)
-                
-                if weighted_mse < best_mse:
-                    best_mse = weighted_mse
-                    best_feature = feature_index
-                    best_threshold = threshold
+            # Avoid division by zero
+            ranges = max_vals - min_vals
+            ranges[ranges == 0] = 1
+            
+            scaler_params = {'min': min_vals, 'max': max_vals, 'range': ranges}
         
-        return best_feature, best_threshold
+        # Apply scaling
+        normalized = (features - scaler_params['min']) / scaler_params['range']
+        return normalized, scaler_params
     
-    def _build_tree(self, X, y, depth=0):
-        """Build decision tree recursively"""
-        if depth >= self.max_depth or len(X) < self.min_samples_split or len(set(y)) == 1:
-            return DecisionTreeNode(value=sum(y) / len(y))
-        
-        best_feature, best_threshold = self._best_split(X, y)
-        
-        if best_feature is None:
-            return DecisionTreeNode(value=sum(y) / len(y))
-        
-        left_indices = [i for i, x in enumerate(X) if x[best_feature] <= best_threshold]
-        right_indices = [i for i, x in enumerate(X) if x[best_feature] > best_threshold]
-        
-        left_X = [X[i] for i in left_indices]
-        left_y = [y[i] for i in left_indices]
-        right_X = [X[i] for i in right_indices]
-        right_y = [y[i] for i in right_indices]
-        
-        left_child = self._build_tree(left_X, left_y, depth + 1)
-        right_child = self._build_tree(right_X, right_y, depth + 1)
-        
-        return DecisionTreeNode(
-            feature_index=best_feature,
-            threshold=best_threshold,
-            left=left_child,
-            right=right_child
-        )
+    def _denormalize_target(self, normalized_target, scaler_params):
+        """Denormalize target values"""
+        return normalized_target * scaler_params['range'] + scaler_params['min']
     
-    def _predict_single(self, tree, x):
-        """Predict single sample using decision tree"""
-        if tree.value is not None:
-            return tree.value
+    def _create_network(self, input_size, output_size=1):
+        """Create a neural network with specified architecture"""
+        layers = []
         
-        if x[tree.feature_index] <= tree.threshold:
-            return self._predict_single(tree.left, x)
+        # Input layer to first hidden layer
+        if self.hidden_layers:
+            layers.append(NeuralLayer(input_size, self.hidden_layers[0], 'relu'))
+            
+            # Hidden layers
+            for i in range(1, len(self.hidden_layers)):
+                layers.append(NeuralLayer(self.hidden_layers[i-1], self.hidden_layers[i], 'relu'))
+            
+            # Last hidden layer to output
+            layers.append(NeuralLayer(self.hidden_layers[-1], output_size, 'linear'))
         else:
-            return self._predict_single(tree.right, x)
+            # Direct input to output
+            layers.append(NeuralLayer(input_size, output_size, 'linear'))
+        
+        return layers
+    
+    def _forward_pass(self, network, inputs):
+        """Forward pass through the entire network"""
+        current_input = inputs
+        for layer in network:
+            current_input = layer.forward(current_input)
+        return current_input
+    
+    def _backward_pass(self, network, target_output):
+        """Backward pass through the entire network"""
+        # Calculate output error
+        output_error = network[-1].last_output - target_output
+        
+        # Backpropagate through layers (reverse order)
+        current_error = output_error
+        for layer in reversed(network):
+            current_error = layer.backward(current_error, self.learning_rate)
+    
+    def _calculate_loss(self, predictions, targets):
+        """Calculate mean squared error loss"""
+        return np.mean((predictions - targets) ** 2)
     
     def _extract_features(self, record):
         """Extract features from a database record with multi-layer support"""
@@ -525,6 +633,11 @@ class DecisionTreePredictor:
         total_thickness = sum(layer['thickness'] for layer in record['insulation_layers'])
         avg_density = sum(layer['density'] for layer in record['insulation_layers']) / len(record['insulation_layers'])
         
+        # Weighted average thermal conductivity
+        total_resistance = sum(layer['thickness'] / (layer['thermal_conductivity'] or 0.04) 
+                             for layer in record['insulation_layers'])
+        effective_k = total_thickness / total_resistance if total_resistance > 0 else 0.04
+        
         # Material composition (simplified to primary material)
         primary_material = record['insulation_layers'][0]['material_name'] if record['insulation_layers'] else 'unknown'
         material_code = self.material_mapping.get(primary_material.lower(), 0)
@@ -532,110 +645,359 @@ class DecisionTreePredictor:
         # Geometric features
         surface_area = record.get('surface_area', 0)
         
+        # Temperature-related features
+        equipment_temp = record['equipment_surface_temp']
+        temp_ratio = record['insulation_surface_temp'] / equipment_temp if equipment_temp > 0 else 0
+        
         return [
-            record['equipment_surface_temp'],
+            equipment_temp,
             surface_area,
             total_thickness,
             avg_density,
+            effective_k,
             geometry_code,
             material_code,
-            len(record['insulation_layers'])  # Number of layers
+            len(record['insulation_layers']),  # Number of layers
+            temp_ratio  # Temperature efficiency indicator
         ]
     
+    def _split_data(self, X, y):
+        """Split data into training and validation sets"""
+        n_samples = len(X)
+        n_val = int(n_samples * self.validation_split)
+        
+        # Shuffle indices
+        indices = np.random.permutation(n_samples)
+        
+        train_indices = indices[n_val:]
+        val_indices = indices[:n_val]
+        
+        X_train = np.array([X[i] for i in train_indices])
+        y_train = np.array([y[i] for i in train_indices])
+        X_val = np.array([X[i] for i in val_indices])
+        y_val = np.array([y[i] for i in val_indices])
+        
+        return X_train, y_train, X_val, y_val
+    
     def train_model(self, data_list):
-        """Train decision tree models"""
-        if len(data_list) < 3:
-            print("Not enough data for training. At least 3 samples needed.")
+        """Train neural network models"""
+        if len(data_list) < 5:
+            print("Not enough data for training. At least 5 samples needed.")
             return False
         
-        X_temp = []
-        y_temp = []
-        X_hconv = []
-        y_hconv = []
+        print(f"Preparing training data from {len(data_list)} records...")
+        
+        # Extract features and targets
+        features_list = []
+        temp_targets = []
+        hconv_targets = []
         
         for record in data_list:
             if not record['insulation_layers']:
                 continue
                 
             features = self._extract_features(record)
-            
-            # Features for temperature prediction
-            features_temp = features + [record.get('convection_coefficient', 0)]
-            
-            # Features for convection coefficient prediction  
-            features_hconv = features + [record['insulation_surface_temp']]
-            
-            X_temp.append(features_temp)
-            y_temp.append(record['insulation_surface_temp'])
-            X_hconv.append(features_hconv)
-            y_hconv.append(record.get('calculated_h_conv', record['convection_coefficient']))
+            features_list.append(features)
+            temp_targets.append(record['insulation_surface_temp'])
+            hconv_targets.append(record.get('calculated_h_conv', record['convection_coefficient']))
         
-        if len(X_temp) < 3:
+        if len(features_list) < 5:
             print("Not enough valid records for training.")
             return False
         
-        print("Building decision tree for temperature prediction...")
-        self.temp_tree = self._build_tree(X_temp, y_temp)
+        # Convert to numpy arrays
+        X = np.array(features_list)
+        y_temp = np.array(temp_targets).reshape(-1, 1)
+        y_hconv = np.array(hconv_targets).reshape(-1, 1)
         
-        print("Building decision tree for convection coefficient prediction...")
-        self.hconv_tree = self._build_tree(X_hconv, y_hconv)
+        print(f"Training with {len(X)} valid samples...")
+        print(f"Feature dimensions: {X.shape[1]}")
+        
+        # Normalize features
+        X_norm, self.feature_scaler_params = self._normalize_features(X)
+        y_temp_norm, self.temp_target_scaler_params = self._normalize_features(y_temp)
+        y_hconv_norm, self.hconv_target_scaler_params = self._normalize_features(y_hconv)
+        
+        # Split data
+        X_train, y_temp_train, X_val, y_temp_val = self._split_data(X_norm, y_temp_norm)
+        _, y_hconv_train, _, y_hconv_val = self._split_data(X_norm, y_hconv_norm)
+        
+        # Create networks
+        input_size = X.shape[1]
+        self.temp_network = self._create_network(input_size)
+        self.hconv_network = self._create_network(input_size)
+        
+        print(f"Neural Network Architecture:")
+        print(f"  Input size: {input_size}")
+        print(f"  Hidden layers: {self.hidden_layers}")
+        print(f"  Output size: 1")
+        print(f"  Total parameters (approx): {self._count_parameters()}")
+        
+        # Train temperature prediction network
+        print("\nTraining temperature prediction network...")
+        self._train_network(self.temp_network, X_train, y_temp_train, X_val, y_temp_val, 'temp')
+        
+        # Train convection coefficient network
+        print("\nTraining convection coefficient prediction network...")
+        self._train_network(self.hconv_network, X_train, y_hconv_train, X_val, y_hconv_val, 'hconv')
         
         self.is_trained = True
-        print(f"Decision trees trained with {len(X_temp)} samples.")
+        print(f"\nNeural networks trained successfully!")
+        self._print_training_summary()
+        
         return True
+    
+    def _train_network(self, network, X_train, y_train, X_val, y_val, network_name):
+        """Train a single network"""
+        n_batches = max(1, len(X_train) // self.batch_size)
+        
+        for epoch in range(self.epochs):
+            # Shuffle training data
+            indices = np.random.permutation(len(X_train))
+            X_shuffled = X_train[indices]
+            y_shuffled = y_train[indices]
+            
+            epoch_loss = 0
+            
+            # Mini-batch training
+            for i in range(n_batches):
+                start_idx = i * self.batch_size
+                end_idx = min((i + 1) * self.batch_size, len(X_train))
+                
+                X_batch = X_shuffled[start_idx:end_idx]
+                y_batch = y_shuffled[start_idx:end_idx]
+                
+                # Forward pass
+                predictions = self._forward_pass(network, X_batch)
+                
+                # Backward pass
+                self._backward_pass(network, y_batch)
+                
+                # Calculate batch loss
+                batch_loss = self._calculate_loss(predictions, y_batch)
+                epoch_loss += batch_loss
+            
+            # Calculate average epoch loss
+            epoch_loss /= n_batches
+            
+            # Validation loss
+            val_predictions = self._forward_pass(network, X_val)
+            val_loss = self._calculate_loss(val_predictions, y_val)
+            
+            # Store training history
+            self.training_history[f'{network_name}_loss'].append(epoch_loss)
+            self.training_history[f'{network_name}_val_loss'].append(val_loss)
+            
+            # Print progress
+            if (epoch + 1) % (self.epochs // 10) == 0 or epoch == 0:
+                print(f"  Epoch {epoch + 1}/{self.epochs} - Loss: {epoch_loss:.6f} - Val Loss: {val_loss:.6f}")
+    
+    def _count_parameters(self):
+        """Count approximate number of parameters in the network"""
+        if not self.hidden_layers:
+            return 0
+        
+        total_params = 0
+        
+        # First layer
+        total_params += (9 * self.hidden_layers[0]) + self.hidden_layers[0]  # weights + biases
+        
+        # Hidden layers
+        for i in range(1, len(self.hidden_layers)):
+            total_params += (self.hidden_layers[i-1] * self.hidden_layers[i]) + self.hidden_layers[i]
+        
+        # Output layer
+        total_params += self.hidden_layers[-1] + 1
+        
+        return total_params * 2  # Two networks
     
     def predict_temperature(self, equipment_temp, surface_area, insulation_layers, 
                           convection_coefficient, geometry_type):
-        """Predict insulation surface temperature using decision tree"""
+        """Predict insulation surface temperature using neural network"""
+        
         if not self.is_trained:
             raise ValueError("Model has not been trained yet.")
         
+        # Extract features
         geometry_code = self.geometry_mapping.get(geometry_type, 0)
         total_thickness = sum(layer.thickness for layer in insulation_layers)
         avg_density = sum(layer.density for layer in insulation_layers) / len(insulation_layers)
         
+        # Calculate effective thermal conductivity
+        total_resistance = sum(layer.thickness / (layer.thermal_conductivity or 0.04) 
+                             for layer in insulation_layers)
+        effective_k = total_thickness / total_resistance if total_resistance > 0 else 0.04
+        
         primary_material = insulation_layers[0].name.lower() if insulation_layers else 'unknown'
         material_code = self.material_mapping.get(primary_material, 0)
         
-        input_features = [
-            equipment_temp, surface_area, total_thickness, avg_density,
-            geometry_code, material_code, len(insulation_layers), convection_coefficient
-        ]
+        # For prediction, we need to estimate temperature ratio
+        temp_ratio = 0.7  # Initial estimate
         
-        prediction = self._predict_single(self.temp_tree, input_features)
-        return prediction
+        features = np.array([[
+            equipment_temp, surface_area, total_thickness, avg_density, effective_k,
+            geometry_code, material_code, len(insulation_layers), temp_ratio
+        ]])
+        
+        # Normalize features
+        features_norm, _ = self._normalize_features(features, self.feature_scaler_params)
+        
+        # Predict normalized temperature
+        temp_norm = self._forward_pass(self.temp_network, features_norm)
+        
+        # Denormalize prediction
+        temp_prediction = self._denormalize_target(temp_norm, self.temp_target_scaler_params)
+        
+        return float(temp_prediction[0, 0])
     
-    def print_tree_info(self):
-        """Print information about the trained trees"""
+    def predict_convection_coefficient(self, equipment_temp, insulation_temp, 
+                                     surface_area, insulation_layers, geometry_type):
+        """Predict convection coefficient using neural network"""
+        
         if not self.is_trained:
-            print("Models have not been trained yet.")
+            raise ValueError("Model has not been trained yet.")
+        
+        # Extract features
+        geometry_code = self.geometry_mapping.get(geometry_type, 0)
+        total_thickness = sum(layer.thickness for layer in insulation_layers)
+        avg_density = sum(layer.density for layer in insulation_layers) / len(insulation_layers)
+        
+        # Calculate effective thermal conductivity
+        total_resistance = sum(layer.thickness / (layer.thermal_conductivity or 0.04) 
+                             for layer in insulation_layers)
+        effective_k = total_thickness / total_resistance if total_resistance > 0 else 0.04
+        
+        primary_material = insulation_layers[0].name.lower() if insulation_layers else 'unknown'
+        material_code = self.material_mapping.get(primary_material, 0)
+        
+        temp_ratio = insulation_temp / equipment_temp if equipment_temp > 0 else 0
+        
+        features = np.array([[
+            equipment_temp, surface_area, total_thickness, avg_density, effective_k,
+            geometry_code, material_code, len(insulation_layers), temp_ratio
+        ]])
+        
+        # Normalize features
+        features_norm, _ = self._normalize_features(features, self.feature_scaler_params)
+        
+        # Predict normalized convection coefficient
+        hconv_norm = self._forward_pass(self.hconv_network, features_norm)
+        
+        # Denormalize prediction
+        hconv_prediction = self._denormalize_target(hconv_norm, self.hconv_target_scaler_params)
+        
+        return float(hconv_prediction[0, 0])
+    
+    def _print_training_summary(self):
+        """Print training summary and final metrics"""
+        print(f"\n=== Neural Network Training Summary ===")
+        print(f"Architecture: {9} -> {' -> '.join(map(str, self.hidden_layers))} -> 1")
+        print(f"Training epochs: {self.epochs}")
+        print(f"Learning rate: {self.learning_rate}")
+        print(f"Batch size: {self.batch_size}")
+        print(f"Validation split: {self.validation_split}")
+        
+        if self.training_history['temp_loss']:
+            final_temp_loss = self.training_history['temp_loss'][-1]
+            final_temp_val_loss = self.training_history['temp_val_loss'][-1]
+            print(f"\nTemperature Network:")
+            print(f"  Final training loss: {final_temp_loss:.6f}")
+            print(f"  Final validation loss: {final_temp_val_loss:.6f}")
+        
+        if self.training_history['hconv_loss']:
+            final_hconv_loss = self.training_history['hconv_loss'][-1]
+            final_hconv_val_loss = self.training_history['hconv_val_loss'][-1]
+            print(f"\nConvection Coefficient Network:")
+            print(f"  Final training loss: {final_hconv_loss:.6f}")
+            print(f"  Final validation loss: {final_hconv_val_loss:.6f}")
+    
+    def print_network_info(self):
+        """Print information about the trained networks"""
+        if not self.is_trained:
+            print("Neural networks have not been trained yet.")
             return
         
-        def count_nodes(node):
-            if node is None:
-                return 0
-            if node.value is not None:
-                return 1
-            return 1 + count_nodes(node.left) + count_nodes(node.right)
+        print(f"\n=== Neural Network Model Information ===")
+        print(f"Status: Trained")
+        print(f"Architecture: Input({9}) -> Hidden{self.hidden_layers} -> Output(1)")
+        print(f"Total parameters: ~{self._count_parameters()}")
+        print(f"Activation functions: ReLU (hidden), Linear (output)")
+        print(f"Training configuration:")
+        print(f"  Epochs: {self.epochs}")
+        print(f"  Learning rate: {self.learning_rate}")
+        print(f"  Batch size: {self.batch_size}")
+        print(f"  Validation split: {self.validation_split}")
         
-        temp_nodes = count_nodes(self.temp_tree)
-        hconv_nodes = count_nodes(self.hconv_tree)
+        # Network details
+        if self.temp_network:
+            print(f"\nTemperature Prediction Network:")
+            for i, layer in enumerate(self.temp_network):
+                print(f"  Layer {i+1}: {layer.input_size} -> {layer.output_size} ({layer.activation})")
         
-        print(f"\nDecision Tree Model Information:")
-        print(f"================================")
-        print(f"Temperature prediction tree: {temp_nodes} nodes")
-        print(f"Convection coefficient prediction tree: {hconv_nodes} nodes")
-        print(f"Maximum depth: {self.max_depth}")
-        print(f"Minimum samples for split: {self.min_samples_split}")
-        print(f"Minimum samples per leaf: {self.min_samples_leaf}")
+        if self.hconv_network:
+            print(f"\nConvection Coefficient Network:")
+            for i, layer in enumerate(self.hconv_network):
+                print(f"  Layer {i+1}: {layer.input_size} -> {layer.output_size} ({layer.activation})")
+    
+    def save_model(self, filepath):
+        """Save trained model to file"""
+        if not self.is_trained:
+            print("No trained model to save.")
+            return False
+        
+        model_data = {
+            'temp_network': self.temp_network,
+            'hconv_network': self.hconv_network,
+            'feature_scaler_params': self.feature_scaler_params,
+            'temp_target_scaler_params': self.temp_target_scaler_params,
+            'hconv_target_scaler_params': self.hconv_target_scaler_params,
+            'training_history': self.training_history,
+            'hidden_layers': self.hidden_layers,
+            'learning_rate': self.learning_rate,
+            'epochs': self.epochs,
+            'batch_size': self.batch_size
+        }
+        
+        try:
+            with open(filepath, 'wb') as f:
+                pickle.dump(model_data, f)
+            print(f"Model saved to {filepath}")
+            return True
+        except Exception as e:
+            print(f"Error saving model: {e}")
+            return False
+    
+    def load_model(self, filepath):
+        """Load trained model from file"""
+        try:
+            with open(filepath, 'rb') as f:
+                model_data = pickle.load(f)
+            
+            self.temp_network = model_data['temp_network']
+            self.hconv_network = model_data['hconv_network']
+            self.feature_scaler_params = model_data['feature_scaler_params']
+            self.temp_target_scaler_params = model_data['temp_target_scaler_params']
+            self.hconv_target_scaler_params = model_data['hconv_target_scaler_params']
+            self.training_history = model_data['training_history']
+            self.hidden_layers = model_data['hidden_layers']
+            self.learning_rate = model_data['learning_rate']
+            self.epochs = model_data['epochs']
+            self.batch_size = model_data['batch_size']
+            
+            self.is_trained = True
+            print(f"Model loaded from {filepath}")
+            return True
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            return False
 
 class EnhancedThermalAnalyzer:
-    """Enhanced thermal analyzer with multi-layer insulation support"""
+    """Enhanced thermal analyzer with multi-layer insulation support and neural network prediction"""
     
     def __init__(self, db_path="thermal_data_enhanced.db"):
         self.database = ThermalDatabase(db_path)
         self.parser = HTMLParser()
-        self.predictor = DecisionTreePredictor()
+        self.predictor = NeuralNetworkPredictor()
         self.heat_calculator = HeatTransferCalculator()
     
     def show_insulation_materials(self):
@@ -765,6 +1127,50 @@ class EnhancedThermalAnalyzer:
         
         return layers
     
+    def configure_neural_network(self):
+        """Configure neural network parameters"""
+        print("\n=== Neural Network Configuration ===")
+        
+        try:
+            # Hidden layers configuration
+            print("Current hidden layers: [20, 15, 10]")
+            change_layers = input("Change hidden layer configuration? (y/n): ").lower().strip()
+            
+            if change_layers == 'y':
+                layers_input = input("Enter hidden layer sizes (comma-separated, e.g., 25,20,15): ")
+                if layers_input.strip():
+                    hidden_layers = [int(x.strip()) for x in layers_input.split(',')]
+                    self.predictor.hidden_layers = hidden_layers
+                    print(f"Hidden layers set to: {hidden_layers}")
+            
+            # Learning rate
+            current_lr = self.predictor.learning_rate
+            lr_input = input(f"Learning rate (current: {current_lr}): ")
+            if lr_input.strip():
+                self.predictor.learning_rate = float(lr_input)
+            
+            # Epochs
+            current_epochs = self.predictor.epochs
+            epochs_input = input(f"Training epochs (current: {current_epochs}): ")
+            if epochs_input.strip():
+                self.predictor.epochs = int(epochs_input)
+            
+            # Batch size
+            current_batch = self.predictor.batch_size
+            batch_input = input(f"Batch size (current: {current_batch}): ")
+            if batch_input.strip():
+                self.predictor.batch_size = int(batch_input)
+            
+            print(f"\nFinal Neural Network Configuration:")
+            print(f"  Hidden layers: {self.predictor.hidden_layers}")
+            print(f"  Learning rate: {self.predictor.learning_rate}")
+            print(f"  Epochs: {self.predictor.epochs}")
+            print(f"  Batch size: {self.predictor.batch_size}")
+            
+        except ValueError as e:
+            print(f"Invalid input: {e}")
+            print("Using default configuration.")
+    
     def add_manual_data_enhanced(self):
         """Add thermal data with multi-layer insulation and geometric parameters"""
         try:
@@ -823,21 +1229,34 @@ class EnhancedThermalAnalyzer:
             print(f"Error adding data: {e}")
     
     def train_prediction_model(self):
-        """Train decision tree prediction model"""
+        """Train neural network prediction model with configuration"""
+        # Configure neural network parameters
+        self.configure_neural_network()
+        
         data_list = self.database.get_all_data()
         if len(data_list) == 0:
             print("No data available for training the model.")
             return False
         
+        print(f"\nStarting neural network training...")
         success = self.predictor.train_model(data_list)
         if success:
-            self.predictor.print_tree_info()
+            self.predictor.print_network_info()
+            
+            # Offer to save the model
+            save_model = input("\nSave trained model? (y/n): ").lower().strip()
+            if save_model == 'y':
+                filename = input("Model filename (default: neural_model.pkl): ").strip()
+                if not filename:
+                    filename = "neural_model.pkl"
+                self.predictor.save_model(filename)
+        
         return success
     
     def predict_properties(self):
-        """Predict thermal properties for new multi-layer configuration"""
+        """Predict thermal properties for new multi-layer configuration using neural network"""
         try:
-            print("\n=== Multi-Layer Thermal Analysis Prediction ===")
+            print("\n=== Multi-Layer Thermal Analysis Prediction (Neural Network) ===")
             
             # Create equipment geometry
             equipment_geometry = self.create_equipment_geometry()
@@ -853,7 +1272,7 @@ class EnhancedThermalAnalyzer:
             estimated_h_conv = self.heat_calculator.estimate_convection_coefficient(
                 equipment_geometry, equipment_temp * 0.7, ambient_temp)
             
-            # Predict insulation temperature using decision tree
+            # Predict insulation temperature using neural network
             surface_area = equipment_geometry.get_surface_area()
             predicted_insulation_temp = self.predictor.predict_temperature(
                 equipment_temp, surface_area, insulation_layers,
@@ -866,12 +1285,17 @@ class EnhancedThermalAnalyzer:
             accurate_h_conv = self.heat_calculator.calculate_convection_coefficient(
                 predicted_insulation_temp, ambient_temp, heat_flux)
             
+            # Predict convection coefficient using neural network
+            predicted_h_conv = self.predictor.predict_convection_coefficient(
+                equipment_temp, predicted_insulation_temp, surface_area,
+                insulation_layers, equipment_geometry.geometry_type)
+            
             # Calculate efficiency
             temp_reduction = equipment_temp - predicted_insulation_temp
             efficiency = (temp_reduction / equipment_temp) * 100
             
             # Display results
-            print(f"\n=== Multi-Layer Thermal Analysis Results ===")
+            print(f"\n=== Multi-Layer Thermal Analysis Results (Neural Network) ===")
             print(f"Equipment Geometry:")
             print(f"  Type: {equipment_geometry.geometry_type}")
             print(f"  Surface area: {surface_area:.3f} m²")
@@ -890,12 +1314,13 @@ class EnhancedThermalAnalyzer:
                 print(f"    Density: {layer.density} kg/m³")
                 print(f"    k: {layer.thermal_conductivity:.3f} W/m·K")
             
-            print(f"\nThermal Performance:")
+            print(f"\nNeural Network Predictions:")
             print(f"  Equipment temperature: {equipment_temp:.1f} °C")
             print(f"  Predicted insulation surface temp: {predicted_insulation_temp:.1f} °C")
             print(f"  Ambient temperature: {ambient_temp:.1f} °C")
             print(f"  Heat flux: {heat_flux:.2f} W/m²")
-            print(f"  Convection coefficient: {accurate_h_conv:.2f} W/m²·K")
+            print(f"  Calculated h_conv: {accurate_h_conv:.2f} W/m²·K")
+            print(f"  Predicted h_conv (NN): {predicted_h_conv:.2f} W/m²·K")
             print(f"  Temperature reduction: {temp_reduction:.1f} °C")
             print(f"  Insulation efficiency: {efficiency:.1f}%")
             
@@ -903,6 +1328,7 @@ class EnhancedThermalAnalyzer:
                 'insulation_temp': predicted_insulation_temp,
                 'heat_flux': heat_flux,
                 'convection_coefficient': accurate_h_conv,
+                'predicted_h_conv': predicted_h_conv,
                 'efficiency': efficiency,
                 'equipment_geometry': equipment_geometry,
                 'insulation_layers': insulation_layers
@@ -966,25 +1392,26 @@ class EnhancedThermalAnalyzer:
             print(f"  Range: {min(all_thicknesses):.1f} to {max(all_thicknesses):.1f} mm")
 
 def main():
-    """Main enhanced program function with multi-layer insulation support"""
+    """Main enhanced program function with neural network support"""
     print("=== Enhanced Multi-Layer Thermal Insulation Analysis System ===")
-    print("With Geometric Parameter-Based Equipment Identification")
+    print("With Neural Network Prediction and Geometric Parameter-Based Equipment Identification")
     
     analyzer = EnhancedThermalAnalyzer()
     
     while True:
-        print("\n" + "="*70)
+        print("\n" + "="*80)
         print("Available options:")
         print("1. View insulation materials and options")
         print("2. Add manual multi-layer thermal data")
-        print("3. Train decision tree prediction model")
-        print("4. Multi-layer thermal analysis prediction")
+        print("3. Train neural network prediction model")
+        print("4. Multi-layer thermal analysis prediction (Neural Network)")
         print("5. View enhanced data statistics")
-        print("6. View decision tree information")
-        print("7. Exit")
-        print("="*70)
+        print("6. View neural network information")
+        print("7. Load/Save neural network model")
+        print("8. Exit")
+        print("="*80)
         
-        choice = input("\nYour choice (1-7): ").strip()
+        choice = input("\nYour choice (1-8): ").strip()
         
         if choice == '1':
             analyzer.show_insulation_materials()
@@ -993,7 +1420,7 @@ def main():
             analyzer.add_manual_data_enhanced()
         
         elif choice == '3':
-            print("\nStarting decision tree model training...")
+            print("\nStarting neural network model training...")
             analyzer.train_prediction_model()
         
         elif choice == '4':
@@ -1003,14 +1430,34 @@ def main():
             analyzer.view_data_statistics()
         
         elif choice == '6':
-            analyzer.predictor.print_tree_info()
+            analyzer.predictor.print_network_info()
         
         elif choice == '7':
-            print("Enhanced multi-layer thermal analysis system closed. Good luck!")
+            print("\n1. Save current model")
+            print("2. Load saved model")
+            sub_choice = input("Choose option (1-2): ").strip()
+            
+            if sub_choice == '1':
+                if analyzer.predictor.is_trained:
+                    filename = input("Model filename (default: neural_model.pkl): ").strip()
+                    if not filename:
+                        filename = "neural_model.pkl"
+                    analyzer.predictor.save_model(filename)
+                else:
+                    print("No trained model to save.")
+            
+            elif sub_choice == '2':
+                filename = input("Model filename (default: neural_model.pkl): ").strip()
+                if not filename:
+                    filename = "neural_model.pkl"
+                analyzer.predictor.load_model(filename)
+        
+        elif choice == '8':
+            print("Enhanced multi-layer thermal analysis system with neural network closed. Good luck!")
             break
         
         else:
-            print("Invalid option. Please enter a number between 1 and 7.")
+            print("Invalid option. Please enter a number between 1 and 8.")
 
 if __name__ == "__main__":
     main()
