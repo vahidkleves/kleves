@@ -195,27 +195,70 @@ class HeatTransferCalculator:
         return max(h_conv, 5.0)
 
 class HTMLParser:
-    """Class for processing HTML output files"""
+    """Enhanced class for processing HTML output files and extracting thermal data"""
     
     def __init__(self):
+        # Enhanced regex patterns for better data extraction
         self.supported_patterns = {
-            'temperature': r'(\d+\.?\d*)\s*°?[CF]',
-            'geometry': r'(pipe|sphere|cube|surface|لوله|کره|مکعب|سطح)',
-            'insulation': r'(cerablanket|silika.*needeled.*mat|mineral.*wool|needeled.*mat)',
-            'area': r'(\d+\.?\d*)\s*(m²|square\s*meter)',
-            'coefficient': r'(\d+\.?\d*)\s*(W/m²\.K|W/m2\.K)',
-            'thickness': r'(\d+\.?\d*)\s*(cm|mm|m)',
-            'density': r'(\d+\.?\d*)\s*(kg/m³|kg/m3)'
+            'temperature': r'(\d+\.?\d*)\s*°?[CF]?\s*(?:درجه|degree|temp)',
+            'geometry': r'(pipe|cylinder|sphere|cube|surface|rectangular|لوله|کره|مکعب|سطح|استوانه)',
+            'insulation': r'(cerablanket|ceramic.*blanket|silika.*needeled.*mat|silika.*mat|mineral.*wool|needeled.*mat|عایق|ceramic|سرامیک)',
+            'area': r'(\d+\.?\d*)\s*(m²|m2|square.*meter|متر.*مربع)',
+            'coefficient': r'(\d+\.?\d*)\s*(W/m²\.K|W/m2\.K|W/m²K|W/m2K)',
+            'thickness': r'(\d+\.?\d*)\s*(cm|mm|m|سانتی.*متر|میلی.*متر|متر)',
+            'density': r'(\d+\.?\d*)\s*(kg/m³|kg/m3|کیلوگرم.*متر.*مکعب)',
+            'diameter': r'(?:diameter|قطر).*?(\d+\.?\d*)\s*(cm|mm|m)',
+            'length': r'(?:length|طول).*?(\d+\.?\d*)\s*(cm|mm|m)',
+            'width': r'(?:width|عرض).*?(\d+\.?\d*)\s*(cm|mm|m)',
+            'height': r'(?:height|ارتفاع).*?(\d+\.?\d*)\s*(cm|mm|m)',
+            'side': r'(?:side|ضلع).*?(\d+\.?\d*)\s*(cm|mm|m)'
+        }
+        
+        # Material mapping for different naming conventions
+        self.material_mapping = {
+            'ceramic': 'cerablanket',
+            'ceramic blanket': 'cerablanket',
+            'cerablanket': 'cerablanket',
+            'silika': 'silika_needeled_mat',
+            'silika mat': 'silika_needeled_mat',
+            'silika needeled mat': 'silika_needeled_mat',
+            'mineral wool': 'mineral_wool',
+            'wool': 'mineral_wool',
+            'needeled mat': 'needeled_mat',
+            'mat': 'needeled_mat',
+            'سرامیک': 'cerablanket',
+            'عایق سرامیک': 'cerablanket'
+        }
+        
+        # Geometry mapping
+        self.geometry_mapping = {
+            'pipe': 'pipe',
+            'cylinder': 'pipe',
+            'لوله': 'pipe',
+            'استوانه': 'pipe',
+            'sphere': 'sphere',
+            'کره': 'sphere',
+            'cube': 'cube',
+            'مکعب': 'cube',
+            'surface': 'surface',
+            'rectangular': 'surface',
+            'سطح': 'surface'
         }
     
     def parse_html_file(self, file_path):
-        """Process an HTML file and extract thermal information"""
+        """Enhanced HTML file processing with better data extraction"""
         try:
             with open(file_path, 'r', encoding='utf-8') as file:
                 content = file.read()
             
-            # Remove HTML tags
-            text = re.sub(r'<[^>]+>', ' ', content)
+            # Remove HTML tags but preserve structure
+            text = re.sub(r'<script.*?</script>', '', content, flags=re.DOTALL)
+            text = re.sub(r'<style.*?</style>', '', text, flags=re.DOTALL)
+            text = re.sub(r'<[^>]+>', ' ', text)
+            
+            # Clean up text
+            text = re.sub(r'\s+', ' ', text)
+            text = text.lower()
             
             # Extract information using regex
             extracted_data = {}
@@ -223,53 +266,155 @@ class HTMLParser:
                 matches = re.findall(pattern, text, re.IGNORECASE)
                 extracted_data[key] = matches
             
-            return self._process_extracted_data(extracted_data)
+            return self._process_extracted_data(extracted_data, file_path)
             
         except Exception as e:
             print(f"Error processing file {file_path}: {e}")
             return None
     
-    def _process_extracted_data(self, raw_data):
-        """Process and clean extracted data"""
+    def _process_extracted_data(self, raw_data, file_path):
+        """Enhanced data processing with intelligent defaults"""
         processed = {}
         
-        # Process temperatures
+        # Process temperatures with better logic
         if raw_data.get('temperature'):
-            temps = [float(t) for t in raw_data['temperature']]
-            processed['equipment_temp'] = max(temps) if temps else None
-            processed['insulation_temp'] = min(temps) if len(temps) > 1 else None
+            temps = []
+            for temp_str in raw_data['temperature']:
+                try:
+                    temp = float(temp_str)
+                    if 0 < temp < 2000:  # Reasonable temperature range
+                        temps.append(temp)
+                except ValueError:
+                    continue
+            
+            if len(temps) >= 2:
+                temps.sort(reverse=True)
+                processed['equipment_temp'] = temps[0]
+                processed['insulation_temp'] = temps[1]
+            elif len(temps) == 1:
+                # Estimate insulation temperature as 70% of equipment temperature
+                processed['equipment_temp'] = temps[0]
+                processed['insulation_temp'] = temps[0] * 0.7
         
-        # Process geometry type
+        # Process geometry type with mapping
         if raw_data.get('geometry'):
-            processed['geometry_type'] = raw_data['geometry'][0]
+            geo_raw = raw_data['geometry'][0].lower()
+            processed['geometry_type'] = self.geometry_mapping.get(geo_raw, 'pipe')
+        else:
+            processed['geometry_type'] = 'pipe'  # Default
         
-        # Process insulation type
+        # Process insulation type with intelligent mapping
         if raw_data.get('insulation'):
-            processed['insulation_type'] = raw_data['insulation'][0]
+            ins_raw = raw_data['insulation'][0].lower()
+            for key, mapped_value in self.material_mapping.items():
+                if key in ins_raw:
+                    processed['insulation_type'] = mapped_value
+                    break
+            else:
+                processed['insulation_type'] = 'cerablanket'  # Default
+        else:
+            processed['insulation_type'] = 'cerablanket'  # Default
+        
+        # Process geometric dimensions
+        dimensions = self._extract_dimensions(raw_data)
+        processed.update(dimensions)
         
         # Process cross-section area
         if raw_data.get('area'):
-            processed['cross_section_area'] = float(raw_data['area'][0])
+            try:
+                processed['cross_section_area'] = float(raw_data['area'][0])
+            except ValueError:
+                pass
+        
+        # Calculate area if not provided but dimensions are available
+        if 'cross_section_area' not in processed:
+            processed['cross_section_area'] = self._calculate_area_from_dimensions(
+                processed['geometry_type'], dimensions)
         
         # Process heat transfer coefficient
         if raw_data.get('coefficient'):
-            processed['convection_coefficient'] = float(raw_data['coefficient'][0])
+            try:
+                processed['convection_coefficient'] = float(raw_data['coefficient'][0])
+            except ValueError:
+                pass
         
         # Process thickness
-        if raw_data.get('thickness'):
-            thickness_value = float(raw_data['thickness'][0])
-            # Convert to meters if needed
-            if 'cm' in str(raw_data['thickness']):
-                thickness_value = thickness_value / 100
-            elif 'mm' in str(raw_data['thickness']):
-                thickness_value = thickness_value / 1000
-            processed['thickness'] = thickness_value
+        thickness_data = self._process_thickness(raw_data)
+        if thickness_data:
+            processed.update(thickness_data)
         
         # Process density
         if raw_data.get('density'):
-            processed['density'] = float(raw_data['density'][0])
+            try:
+                processed['density'] = float(raw_data['density'][0])
+            except ValueError:
+                pass
+        
+        # Add file source for tracking
+        processed['source_file'] = os.path.basename(file_path)
         
         return processed
+    
+    def _extract_dimensions(self, raw_data):
+        """Extract and convert geometric dimensions"""
+        dimensions = {}
+        
+        for dim_type in ['diameter', 'length', 'width', 'height', 'side']:
+            if raw_data.get(dim_type):
+                try:
+                    value = float(raw_data[dim_type][0])
+                    unit = raw_data[dim_type][1] if len(raw_data[dim_type]) > 1 else 'm'
+                    
+                    # Convert to meters
+                    if unit in ['cm', 'سانتی متر']:
+                        value = value / 100
+                    elif unit in ['mm', 'میلی متر']:
+                        value = value / 1000
+                    
+                    dimensions[dim_type] = value
+                except (ValueError, IndexError):
+                    continue
+        
+        return dimensions
+    
+    def _calculate_area_from_dimensions(self, geometry_type, dimensions):
+        """Calculate surface area from dimensions"""
+        if geometry_type == 'pipe':
+            diameter = dimensions.get('diameter', 0.1)
+            length = dimensions.get('length', 1.0)
+            return math.pi * diameter * length
+        elif geometry_type == 'sphere':
+            diameter = dimensions.get('diameter', 0.1)
+            radius = diameter / 2
+            return 4 * math.pi * radius**2
+        elif geometry_type == 'cube':
+            side = dimensions.get('side', 0.1)
+            return 6 * side**2
+        elif geometry_type == 'surface':
+            length = dimensions.get('length', 1.0)
+            width = dimensions.get('width', 1.0)
+            return length * width
+        else:
+            return 1.0  # Default 1 m²
+    
+    def _process_thickness(self, raw_data):
+        """Process thickness data with unit conversion"""
+        if not raw_data.get('thickness'):
+            return None
+        
+        try:
+            thickness_value = float(raw_data['thickness'][0])
+            unit = raw_data['thickness'][1] if len(raw_data['thickness']) > 1 else 'm'
+            
+            # Convert to meters
+            if unit in ['cm', 'سانتی متر']:
+                thickness_value = thickness_value / 100
+            elif unit in ['mm', 'میلی متر']:
+                thickness_value = thickness_value / 1000
+            
+            return {'thickness': thickness_value}
+        except (ValueError, IndexError):
+            return None
 
 class ThermalDatabase:
     """Class for managing thermal database with multi-layer support"""
@@ -295,6 +440,7 @@ class ThermalDatabase:
                 convection_coefficient REAL NOT NULL,
                 heat_flux REAL,
                 calculated_h_conv REAL,
+                source_file TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -316,7 +462,7 @@ class ThermalDatabase:
         conn.commit()
         conn.close()
     
-    def insert_data(self, thermal_data, heat_flux=None, calculated_h_conv=None):
+    def insert_data(self, thermal_data, heat_flux=None, calculated_h_conv=None, source_file=None):
         """Insert new data into database with multi-layer support"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -328,8 +474,8 @@ class ThermalDatabase:
         cursor.execute('''
             INSERT INTO thermal_records 
             (geometry_type, geometry_parameters, equipment_surface_temp, insulation_surface_temp,
-             surface_area, convection_coefficient, heat_flux, calculated_h_conv)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             surface_area, convection_coefficient, heat_flux, calculated_h_conv, source_file)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             thermal_data.equipment_geometry.geometry_type,
             geometry_params,
@@ -338,7 +484,8 @@ class ThermalDatabase:
             surface_area,
             thermal_data.convection_coefficient,
             heat_flux,
-            calculated_h_conv
+            calculated_h_conv,
+            source_file
         ))
         
         record_id = cursor.lastrowid
@@ -1000,6 +1147,166 @@ class EnhancedThermalAnalyzer:
         self.predictor = NeuralNetworkPredictor()
         self.heat_calculator = HeatTransferCalculator()
     
+    def import_html_files(self, directory_path):
+        """Import HTML files and extract training data with neural network training"""
+        if not os.path.exists(directory_path):
+            print(f"Directory {directory_path} does not exist.")
+            return
+        
+        print(f"\n=== Importing HTML Files for Neural Network Training ===")
+        print(f"Scanning directory: {directory_path}")
+        
+        imported_count = 0
+        skipped_count = 0
+        
+        # Get list of HTML files
+        html_files = [f for f in os.listdir(directory_path) if f.lower().endswith(('.html', '.htm'))]
+        print(f"Found {len(html_files)} HTML files")
+        
+        if len(html_files) == 0:
+            print("No HTML files found in the directory.")
+            return
+        
+        for filename in html_files:
+            file_path = os.path.join(directory_path, filename)
+            print(f"\nProcessing: {filename}")
+            
+            # Parse HTML file
+            data = self.parser.parse_html_file(file_path)
+            
+            if data and self._validate_extracted_data(data):
+                try:
+                    # Create equipment geometry from extracted data
+                    equipment_geometry = self._create_geometry_from_data(data)
+                    
+                    # Create insulation layers from extracted data
+                    insulation_layers = self._create_layers_from_data(data)
+                    
+                    # Calculate heat transfer properties
+                    heat_flux = self.heat_calculator.calculate_multilayer_heat_flux(
+                        data['equipment_temp'], data['insulation_temp'], insulation_layers)
+                    
+                    calculated_h_conv = self.heat_calculator.calculate_convection_coefficient(
+                        data['insulation_temp'], 25, heat_flux)  # Assume 25°C ambient
+                    
+                    # Use provided convection coefficient if available, otherwise use calculated
+                    convection_coeff = data.get('convection_coefficient', calculated_h_conv)
+                    
+                    # Create thermal data object
+                    thermal_data = ThermalData(
+                        equipment_geometry=equipment_geometry,
+                        equipment_surface_temp=data['equipment_temp'],
+                        insulation_surface_temp=data['insulation_temp'],
+                        insulation_layers=insulation_layers,
+                        convection_coefficient=convection_coeff
+                    )
+                    
+                    # Save to database
+                    self.database.insert_data(thermal_data, heat_flux, calculated_h_conv, data['source_file'])
+                    imported_count += 1
+                    
+                    print(f"  ✓ Successfully imported")
+                    print(f"    Equipment temp: {data['equipment_temp']:.1f}°C")
+                    print(f"    Insulation temp: {data['insulation_temp']:.1f}°C")
+                    print(f"    Geometry: {equipment_geometry.geometry_type}")
+                    print(f"    Layers: {len(insulation_layers)}")
+                    print(f"    Heat flux: {heat_flux:.2f} W/m²")
+                    
+                except Exception as e:
+                    print(f"  ✗ Error processing data: {e}")
+                    skipped_count += 1
+            else:
+                print(f"  ✗ Insufficient or invalid data")
+                skipped_count += 1
+        
+        print(f"\n=== Import Summary ===")
+        print(f"Successfully imported: {imported_count} files")
+        print(f"Skipped: {skipped_count} files")
+        print(f"Total processed: {len(html_files)} files")
+        
+        if imported_count > 0:
+            # Ask if user wants to train the neural network immediately
+            train_now = input(f"\nTrain neural network with {imported_count} imported samples? (y/n): ").lower().strip()
+            if train_now == 'y':
+                print("\nStarting neural network training with imported data...")
+                self.train_prediction_model()
+        else:
+            print("No data was imported. Cannot train neural network.")
+    
+    def _validate_extracted_data(self, data):
+        """Validate extracted data for completeness"""
+        required_fields = ['equipment_temp', 'insulation_temp']
+        
+        # Check required fields
+        for field in required_fields:
+            if field not in data or data[field] is None:
+                return False
+            if not isinstance(data[field], (int, float)) or data[field] <= 0:
+                return False
+        
+        # Check temperature logic
+        if data['insulation_temp'] >= data['equipment_temp']:
+            return False
+        
+        return True
+    
+    def _create_geometry_from_data(self, data):
+        """Create equipment geometry from extracted data"""
+        geometry_type = data.get('geometry_type', 'pipe')
+        
+        # Default parameters based on geometry type
+        if geometry_type == 'pipe':
+            parameters = {
+                'diameter': data.get('diameter', 0.1),  # 10 cm default
+                'length': data.get('length', 1.0)       # 1 m default
+            }
+        elif geometry_type == 'sphere':
+            parameters = {
+                'diameter': data.get('diameter', 0.1)   # 10 cm default
+            }
+        elif geometry_type == 'cube':
+            parameters = {
+                'side_length': data.get('side', 0.1)    # 10 cm default
+            }
+        elif geometry_type == 'surface':
+            parameters = {
+                'length': data.get('length', 1.0),      # 1 m default
+                'width': data.get('width', 1.0)         # 1 m default
+            }
+        else:
+            # Default to pipe
+            parameters = {'diameter': 0.1, 'length': 1.0}
+        
+        return EquipmentGeometry(geometry_type, **parameters)
+    
+    def _create_layers_from_data(self, data):
+        """Create insulation layers from extracted data"""
+        insulation_type = data.get('insulation_type', 'cerablanket')
+        thickness = data.get('thickness', 0.025)  # 25 mm default
+        density = data.get('density')
+        
+        # Get material properties
+        material_info = self.heat_calculator.insulation_materials.get(insulation_type)
+        if not material_info:
+            material_info = self.heat_calculator.insulation_materials['cerablanket']
+        
+        # Use provided density or default
+        if not density:
+            density = material_info['available_density'][0]
+        
+        # Get thermal conductivity
+        thermal_conductivity = self.heat_calculator.get_thermal_conductivity(insulation_type, density)
+        
+        # Create single layer (can be extended for multi-layer parsing)
+        layer = InsulationLayer(
+            name=insulation_type,
+            thickness=thickness,
+            density=density,
+            thermal_conductivity=thermal_conductivity
+        )
+        
+        return [layer]
+    
     def show_insulation_materials(self):
         """Display available insulation materials and their options"""
         print("\nAvailable Insulation Materials:")
@@ -1204,7 +1511,7 @@ class EnhancedThermalAnalyzer:
             )
             
             # Save to database
-            self.database.insert_data(thermal_data, heat_flux, calculated_h_conv)
+            self.database.insert_data(thermal_data, heat_flux, calculated_h_conv, "manual_input")
             
             # Display results
             print("\n=== Enhanced Multi-Layer Data Successfully Added ===")
@@ -1348,6 +1655,17 @@ class EnhancedThermalAnalyzer:
         print(f"\n=== Enhanced Multi-Layer Data Statistics ===")
         print(f"Total records: {len(data_list)}")
         
+        # Source file statistics
+        source_files = [d.get('source_file', 'unknown') for d in data_list]
+        html_files = [f for f in source_files if f.endswith('.html') or f.endswith('.htm')]
+        manual_entries = [f for f in source_files if f == 'manual_input']
+        
+        print(f"\nData sources:")
+        print(f"  HTML files: {len(html_files)} records")
+        print(f"  Manual entries: {len(manual_entries)} records")
+        if len(html_files) > 0:
+            print(f"  Unique HTML files: {len(set(html_files))}")
+        
         # Geometry statistics
         geometries = [d['geometry_type'] for d in data_list]
         geometry_counts = {geo: geometries.count(geo) for geo in set(geometries)}
@@ -1394,45 +1712,52 @@ class EnhancedThermalAnalyzer:
 def main():
     """Main enhanced program function with neural network support"""
     print("=== Enhanced Multi-Layer Thermal Insulation Analysis System ===")
-    print("With Neural Network Prediction and Geometric Parameter-Based Equipment Identification")
+    print("With Neural Network Prediction and HTML Training Data Import")
     
     analyzer = EnhancedThermalAnalyzer()
     
     while True:
         print("\n" + "="*80)
         print("Available options:")
-        print("1. View insulation materials and options")
-        print("2. Add manual multi-layer thermal data")
-        print("3. Train neural network prediction model")
-        print("4. Multi-layer thermal analysis prediction (Neural Network)")
-        print("5. View enhanced data statistics")
-        print("6. View neural network information")
-        print("7. Load/Save neural network model")
-        print("8. Exit")
+        print("1. Import HTML files and train neural network")
+        print("2. View insulation materials and options")
+        print("3. Add manual multi-layer thermal data")
+        print("4. Train neural network prediction model")
+        print("5. Multi-layer thermal analysis prediction (Neural Network)")
+        print("6. View enhanced data statistics")
+        print("7. View neural network information")
+        print("8. Load/Save neural network model")
+        print("9. Exit")
         print("="*80)
         
-        choice = input("\nYour choice (1-8): ").strip()
+        choice = input("\nYour choice (1-9): ").strip()
         
         if choice == '1':
-            analyzer.show_insulation_materials()
+            directory = input("Path to folder containing HTML files (default: ./html_files): ").strip()
+            if not directory:
+                directory = "./html_files"
+            analyzer.import_html_files(directory)
         
         elif choice == '2':
-            analyzer.add_manual_data_enhanced()
+            analyzer.show_insulation_materials()
         
         elif choice == '3':
+            analyzer.add_manual_data_enhanced()
+        
+        elif choice == '4':
             print("\nStarting neural network model training...")
             analyzer.train_prediction_model()
         
-        elif choice == '4':
+        elif choice == '5':
             analyzer.predict_properties()
         
-        elif choice == '5':
+        elif choice == '6':
             analyzer.view_data_statistics()
         
-        elif choice == '6':
+        elif choice == '7':
             analyzer.predictor.print_network_info()
         
-        elif choice == '7':
+        elif choice == '8':
             print("\n1. Save current model")
             print("2. Load saved model")
             sub_choice = input("Choose option (1-2): ").strip()
@@ -1452,12 +1777,12 @@ def main():
                     filename = "neural_model.pkl"
                 analyzer.predictor.load_model(filename)
         
-        elif choice == '8':
+        elif choice == '9':
             print("Enhanced multi-layer thermal analysis system with neural network closed. Good luck!")
             break
         
         else:
-            print("Invalid option. Please enter a number between 1 and 8.")
+            print("Invalid option. Please enter a number between 1 and 9.")
 
 if __name__ == "__main__":
     main()
